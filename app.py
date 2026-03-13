@@ -1,68 +1,63 @@
 import streamlit as st
+import json
+import gspread
+import pandas as pd
+from datetime import datetime
 
-# 1. Configuración y Estilo CSS para que se parezca a tu imagen
 st.set_page_config(page_title="Farmacia Hospital", layout="wide")
 
+# CSS Ajustado para centrar y dar forma de tarjeta real
 st.markdown("""
     <style>
-    .main {
-        background-color: #333333; /* Color de fondo oscuro como tu imagen */
+    /* Centrar todo el contenido de la página */
+    .block-container {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        padding-top: 5rem;
     }
+    
+    /* Estilo de los botones (Tarjetas) */
     div.stButton > button {
-        background-color: #E0E0E0; /* Gris claro de las tarjetas */
+        background-color: #E0E0E0;
         color: #000000;
-        height: 150px;
-        width: 100%;
-        border-radius: 20px; /* Bordes redondeados */
+        height: 180px; /* Un poco más altos */
+        width: 250px;  /* Ancho fijo para que parezcan tarjetas */
+        border-radius: 25px;
         border: none;
-        font-size: 20px;
+        font-size: 22px;
         font-weight: bold;
+        box-shadow: 0px 4px 15px rgba(0,0,0,0.3); /* Sombra para profundidad */
         transition: 0.3s;
+        margin: 10px;
     }
+
     div.stButton > button:hover {
-        background-color: #CCCCCC;
-        transform: scale(1.05); /* Efecto de aumento al pasar el mouse */
+        background-color: #FFFFFF;
+        transform: translateY(-10px); /* Se eleva un poquito al pasar el mouse */
+        box-shadow: 0px 8px 25px rgba(0,0,0,0.5);
     }
     </style>
     """, unsafe_allow_html=True)
 
-# 2. Inicializar el estado de navegación
+# Lógica de Navegación
 if 'menu' not in st.session_state:
     st.session_state.menu = "inicio"
 
-# 3. Función para cambiar de pantalla
-def cambiar_pantalla(nombre):
-    st.session_state.menu = nombre
-
-# --- LÓGICA DE PANTALLAS ---
-
 if st.session_state.menu == "inicio":
-    st.write("#") # Espaciado
-    st.write("#")
-    
-    # Creamos 3 columnas para que queden centrados y en línea como tu diseño
-    col1, col2, col3 = st.columns(3)
+    # Usamos columnas pero con un truco para centrarlas en el medio de la pantalla
+    empty1, col1, col2, col3, empty2 = st.columns([1, 2, 2, 2, 1])
     
     with col1:
-        if st.button("CARGA\n\n+"):
-            cambiar_pantalla("carga")
+        if st.button("CARGA\n\n➕"):
+            st.session_state.menu = "carga"
             st.rerun()
-
     with col2:
-        if st.button("STOCK\n\n="):
-            cambiar_pantalla("stock")
+        if st.button("STOCK\n\n📋"):
+            st.session_state.menu = "stock"
             st.rerun()
-
     with col3:
-        if st.button("DESCARGA\n\n-"):
-            cambiar_pantalla("descarga")
+        if st.button("DESCARGA\n\n⬇️"):
+            st.session_state.menu = "descarga"
             st.rerun()
-
-elif st.session_state.menu == "carga":
-    if st.button("⬅️ Volver al Menú"):
-        cambiar_pantalla("inicio")
-        st.rerun()
-    st.subheader("📝 Formulario de Carga de Medicamentos")
-    # Aquí iría el código de Google Sheets que ya teníamos
-    
-# (Y así con el resto de las pantallas...)
