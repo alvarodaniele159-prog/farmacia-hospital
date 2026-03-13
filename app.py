@@ -90,13 +90,17 @@ elif st.session_state.menu == "carga":
 
     with tab2:
         st.markdown("### Subir archivo Excel")
-        st.info("El Excel debe tener 4 columnas: Nombre, Lote, Vencimiento (AAAA-MM-DD) y Cantidad.")
+        st.info("El Excel debe tener los títulos exactos: Nombre, Lote, Vencimiento, Cantidad")
         
         archivo_subido = st.file_uploader("Selecciona el archivo Excel", type=["xlsx", "xls"])
         
         if archivo_subido is not None:
             try:
                 df_excel = pd.read_excel(archivo_subido)
+                
+                # 💡 TRUCO PRO: Limpiamos los títulos para borrar espacios invisibles
+                df_excel.columns = df_excel.columns.str.strip()
+                
                 st.write("Vista previa de los datos a cargar:")
                 st.dataframe(df_excel)
 
@@ -106,11 +110,12 @@ elif st.session_state.menu == "carga":
                     
                     filas_a_subir = []
                     for i, fila in df_excel.iterrows():
-                        # --- AQUÍ ESTÁ LA CORRECCIÓN MÁGICA PARA LAS FECHAS ---
-                        nombre_med = str(fila.iloc[0])
-                        lote_med = str(fila.iloc[1])
-                        fecha_venc = pd.to_datetime(fila.iloc[2]).strftime('%Y-%m-%d')
-                        cantidad_med = int(fila.iloc[3])
+                        # --- CÓDIGO A PRUEBA DE BALAS ---
+                        # Ahora busca por el nombre exacto de la columna, no por el orden
+                        nombre_med = str(fila['Nombre'])
+                        lote_med = str(fila['Lote'])
+                        fecha_venc = pd.to_datetime(fila['Vencimiento']).strftime('%Y-%m-%d')
+                        cantidad_med = int(fila['Cantidad'])
                         
                         nueva_fila = [
                             ultimo_id + i, 
@@ -125,6 +130,10 @@ elif st.session_state.menu == "carga":
                     hoja.append_rows(filas_a_subir)
                     st.success(f"🚀 ¡Éxito! Se cargaron {len(filas_a_subir)} medicamentos nuevos.")
                     st.rerun()
+                    
+            # Agregamos esta alerta para que el sistema nos avise si un título está mal escrito
+            except KeyError as e:
+                st.error(f"❌ Error: No se encontró la columna {e}. Revisa que los títulos en el Excel estén bien escritos.")
             except Exception as e:
                 st.error(f"❌ Error al procesar el Excel. Detalle técnico: {e}")
 
