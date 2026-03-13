@@ -218,7 +218,7 @@ elif st.session_state.menu == "descarga":
 
     with tab1:
         st.markdown("### Complete los datos del retiro")
-        st.write("---") # Una línea divisoria elegante
+        st.write("---")
         
         datos_actuales = hoja.get_all_records()
         df_inventario = pd.DataFrame(datos_actuales)
@@ -226,72 +226,35 @@ elif st.session_state.menu == "descarga":
         if df_inventario.empty:
             st.warning("⚠️ El inventario está vacío. No hay nada para retirar.")
         else:
+            # Normalizamos datos para asegurar que los filtros no fallen por espacios o mayúsculas
+            df_inventario['nombre'] = df_inventario['nombre'].astype(str).str.strip()
+            df_inventario['lote'] = df_inventario['lote'].astype(str).str.strip()
+            df_inventario['vencimiento'] = df_inventario['vencimiento'].astype(str).str.strip()
+            
+            # Ocultamos lo que ya tiene stock 0
             df_con_stock = df_inventario[df_inventario['cantidad'] > 0]
             
             if df_con_stock.empty:
                 st.warning("⚠️ No hay medicamentos con stock disponible en este momento.")
             else:
-                nombres_unicos = sorted(df_con_stock['nombre'].astype(str).str.strip().unique())
-                
-                # Usamos columnas para mostrar todo "de entrada" de forma ordenada
                 col1, col2 = st.columns(2)
                 
                 with col1:
-                    # 1. Selector de Medicamento (Siempre visible)
+                    # 1️⃣ Selector de Medicamento
+                    nombres_unicos = sorted(df_con_stock['nombre'].unique())
                     med_seleccionado = st.selectbox("1️⃣ Buscar Medicamento", options=["Seleccione..."] + nombres_unicos)
                     
-                    # Lógica interna para alimentar el segundo desplegable
+                    # 2️⃣ Selector de Lote (Filtra según el medicamento)
+                    opciones_lote = ["Seleccione..."]
                     if med_seleccionado != "Seleccione...":
-                        df_filtrado = df_con_stock[df_con_stock['nombre'].str.strip() == med_seleccionado]
-                        opciones_lote = ["Seleccione el lote..."]
-                        diccionario_lotes = {}
+                        df_filtrado_nombre = df_con_stock[df_con_stock['nombre'] == med_seleccionado]
+                        lotes_unicos = sorted(df_filtrado_nombre['lote'].unique())
+                        opciones_lote = ["Seleccione..."] + lotes_unicos
                         
-                        for idx, fila in df_filtrado.iterrows():
-                            texto_opcion = f"Lote: {fila['lote']} | Vence: {fila['vencimiento']} | Stock: {fila['cantidad']}"
-                            opciones_lote.append(texto_opcion)
-                            diccionario_lotes[texto_opcion] = {
-                                'indice_real': idx, 
-                                'stock_actual': int(fila['cantidad']),
-                                'nombre': fila['nombre'],
-                                'lote': fila['lote']
-                            }
-                    else:
-                        # Si aún no elige medicamento, el desplegable de lote muestra este mensaje
-                        opciones_lote = ["Primero elija un medicamento arriba"]
-                        diccionario_lotes = {}
-
-                    # 2. Selector de Lote (Siempre visible)
                     lote_seleccionado = st.selectbox("2️⃣ Seleccionar Lote", options=opciones_lote)
 
                 with col2:
-                    # 3. Cantidad a retirar (Siempre visible desde el inicio)
-                    cantidad_a_retirar = st.number_input("3️⃣ Cantidad a retirar", min_value=1, step=1)
-                    
-                    st.write("#") # Espaciador para que el botón quede alineado con los inputs
-                    
-                    # 4. Botón de confirmar (Siempre visible)
-                    btn_confirmar = st.button("✅ Confirmar Descarga", type="primary", use_container_width=True)
-
-                # --- LÓGICA DE VALIDACIÓN (Solo se activa al hacer clic) ---
-                if btn_confirmar:
-                    if med_seleccionado == "Seleccione...":
-                        st.error("⚠️ Por favor, seleccione un medicamento primero.")
-                    elif lote_seleccionado in ["Seleccione el lote...", "Primero elija un medicamento arriba"]:
-                        st.error("⚠️ Por favor, seleccione un lote válido.")
-                    else:
-                        datos_lote = diccionario_lotes[lote_seleccionado]
-                        stock_maximo = datos_lote['stock_actual']
-                        
-                        # Revisamos que no intente sacar más de lo que existe
-                        if cantidad_a_retirar > stock_maximo:
-                            st.error(f"❌ Stock insuficiente. Solo tienes {stock_maximo} unidades disponibles en este lote.")
-                        else:
-                            # Resta matemática y actualización en la Nube
-                            fila_google = int(datos_lote['indice_real']) + 2
-                            nuevo_stock = stock_maximo - cantidad_a_retirar
-                            hoja.update_cell(fila_google, 4, nuevo_stock)
-                            
-                            st.success(f"🎉 ¡Éxito! Retiraste {cantidad_a_retirar} unidades. Stock actualizado a {nuevo_stock}.")
-                            
-    with tab2:
-        st.info("Aquí programaremos la descarga masiva con Excel cuando estés listo.")
+                    # 3️⃣ Selector de Vencimiento (Filtra según Med + Lote)
+                    opciones_venc = ["Seleccione..."]
+                    if lote_seleccionado != "Seleccione...":
+                        df_filtrado_lote = df_con_
