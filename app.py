@@ -257,4 +257,4 @@ elif st.session_state.menu == "descarga":
                     # 3️⃣ Selector de Vencimiento (Filtra según Med + Lote)
                     opciones_venc = ["Seleccione..."]
                     if lote_seleccionado != "Seleccione...":
-                        df_filtrado_lote = df_con_
+                        df_filtrado_lote = df_con_stock[(df_con_stock['nombre'] == med_seleccionado) & (df_con_stock['lote'] == lote_seleccionado)]
