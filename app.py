@@ -26,15 +26,12 @@ if 'menu' not in st.session_state:
     st.session_state.menu = "inicio"
 
 # ==========================================
-# --- PANTALLA DE INICIO (Diseño Aislado) ---
+# --- PANTALLA DE INICIO ---
 # ==========================================
 if st.session_state.menu == "inicio":
-    # CSS Exclusivo para el menú principal
     st.markdown("""
         <style>
-        .block-container {
-            display: flex; flex-direction: column; justify-content: center; align-items: center; padding-top: 5rem;
-        }
+        .block-container { display: flex; flex-direction: column; justify-content: center; align-items: center; padding-top: 5rem; }
         div.stButton > button {
             background-color: #E0E0E0; color: #000000; height: 180px; width: 250px;
             border-radius: 25px; border: none; font-size: 22px; font-weight: bold;
@@ -47,7 +44,6 @@ if st.session_state.menu == "inicio":
     st.title("🏥 Sistema de Farmacia")
     st.write("#")
     
-    # Restauramos las columnas exactas que centraban tu diseño
     empty1, col1, col2, col3, empty2 = st.columns([1, 2, 2, 2, 1])
     
     with col1:
@@ -64,18 +60,10 @@ if st.session_state.menu == "inicio":
             st.rerun()
 
 # ==========================================
-# --- PANTALLA DE CARGA (Diseño Aislado) ---
+# --- PANTALLA DE CARGA (Con lógica UPSERT) ---
 # ==========================================
 elif st.session_state.menu == "carga":
-    # CSS Exclusivo para formularios (restablece los botones a la normalidad)
-    st.markdown("""
-        <style>
-        .block-container { padding-top: 2rem; }
-        div.stButton > button {
-            height: auto; width: auto; padding: 10px 20px; border-radius: 8px; font-weight: normal;
-        }
-        </style>
-        """, unsafe_allow_html=True)
+    st.markdown("<style>.block-container { padding-top: 2rem; } div.stButton > button { height: auto; width: auto; padding: 10px 20px; border-radius: 8px; }</style>", unsafe_allow_html=True)
 
     st.title("📝 Registro de Medicamentos")
     
@@ -100,15 +88,47 @@ elif st.session_state.menu == "carga":
         if btn_guardar:
             if nombre and lote:
                 datos_actuales = hoja.get_all_records()
-                nuevo_id = 1 if not datos_actuales else int(pd.DataFrame(datos_actuales)['id'].max()) + 1
-                nueva_fila = [nuevo_id, nombre, lote, cantidad, str(vencimiento), "Farmacia Central"]
-                hoja.append_row(nueva_fila)
-                st.success(f"✅ {nombre} guardado.")
+                df_actual = pd.DataFrame(datos_actuales)
+                
+                # Preparamos los datos para comparar (minúsculas y sin espacios extra)
+                n_match = str(nombre).strip().lower()
+                l_match = str(lote).strip().lower()
+                v_match = str(vencimiento)
+
+                # Buscamos si ya existe
+                if not df_actual.empty:
+                    filtro = (
+                        (df_actual['nombre'].astype(str).str.strip().str.lower() == n_match) &
+                        (df_actual['lote'].astype(str).str.strip().str.lower() == l_match) &
+                        (df_actual['vencimiento'].astype(str).str.strip() == v_match)
+                    )
+                    coincidencias = df_actual[filtro]
+                else:
+                    coincidencias = pd.DataFrame()
+
+                # Si el lote ya existe, SUMAMOS. Si no, AGREGAMOS.
+                if not coincidencias.empty:
+                    # Obtenemos el número de fila exacto en el Excel de Google
+                    indice_df = coincidencias.index[0]
+                    fila_google_sheets = int(indice_df) + 2 # +1 por índice 0, +1 por la cabecera
+                    
+                    stock_previo = int(coincidencias.iloc[0]['cantidad'])
+                    nuevo_stock = stock_previo + cantidad
+                    
+                    # Actualizamos solo la celda de la cantidad (Columna 4)
+                    hoja.update_cell(fila_google_sheets, 4, nuevo_stock)
+                    st.success(f"🔄 Lote existente encontrado. Se sumaron {cantidad} a {nombre}. Stock total: {nuevo_stock}")
+                else:
+                    nuevo_id = 1 if df_actual.empty else int(df_actual['id'].max()) + 1
+                    nueva_fila = [nuevo_id, nombre, lote, cantidad, str(vencimiento), "Farmacia Central"]
+                    hoja.append_row(nueva_fila)
+                    st.success(f"✅ Nuevo medicamento registrado: {nombre}.")
+                
                 st.rerun()
 
     with tab2:
         st.markdown("### Subir archivo Excel")
-        st.info("El Excel debe tener los títulos exactos: Nombre, Lote, Vencimiento, Cantidad")
+        st.info("Si el lote ya existe en el sistema, se sumará la cantidad automáticamente.")
         
         archivo_subido = st.file_uploader("Selecciona el archivo Excel", type=["xlsx", "xls"])
         
@@ -116,30 +136,63 @@ elif st.session_state.menu == "carga":
             try:
                 df_excel = pd.read_excel(archivo_subido)
                 df_excel.columns = df_excel.columns.str.strip()
-                st.write("Vista previa de los datos a cargar:")
+                st.write("Vista previa:")
                 st.dataframe(df_excel)
 
                 if st.button("Confirmar Carga Masiva", type="primary"):
                     datos_actuales = hoja.get_all_records()
-                    ultimo_id = 1 if not datos_actuales else int(pd.DataFrame(datos_actuales)['id'].max()) + 1
+                    df_actual = pd.DataFrame(datos_actuales)
+                    ultimo_id = 1 if df_actual.empty else int(df_actual['id'].max())
                     
-                    filas_a_subir = []
+                    filas_nuevas = []
+                    actualizaciones = 0
+                    
+                    # Revisamos el Excel fila por fila
                     for i, fila in df_excel.iterrows():
-                        nueva_fila = [
-                            ultimo_id + i, 
-                            str(fila['Nombre']), 
-                            str(fila['Lote']), 
-                            int(fila['Cantidad']), 
-                            pd.to_datetime(fila['Vencimiento']).strftime('%Y-%m-%d'), 
-                            "Farmacia Central"
-                        ]
-                        filas_a_subir.append(nueva_fila)
+                        n_excel = str(fila['Nombre']).strip()
+                        l_excel = str(fila['Lote']).strip()
+                        v_excel = pd.to_datetime(fila['Vencimiento']).strftime('%Y-%m-%d')
+                        c_excel = int(fila['Cantidad'])
+                        
+                        # Buscamos en la base de datos actual
+                        if not df_actual.empty:
+                            filtro = (
+                                (df_actual['nombre'].astype(str).str.strip().str.lower() == n_excel.lower()) &
+                                (df_actual['lote'].astype(str).str.strip().str.lower() == l_excel.lower()) &
+                                (df_actual['vencimiento'].astype(str).str.strip() == v_excel)
+                            )
+                            coincidencia = df_actual[filtro]
+                        else:
+                            coincidencia = pd.DataFrame()
+
+                        if not coincidencia.empty:
+                            # Si existe, actualizamos la celda
+                            idx = coincidencia.index[0]
+                            fila_sheet = int(idx) + 2
+                            stock_viejo = int(df_actual.at[idx, 'cantidad'])
+                            nuevo_stock = stock_viejo + c_excel
+                            
+                            hoja.update_cell(fila_sheet, 4, nuevo_stock)
+                            
+                            # Actualizamos nuestra memoria para no duplicar si el Excel trae dos veces el mismo
+                            df_actual.at[idx, 'cantidad'] = nuevo_stock
+                            actualizaciones += 1
+                        else:
+                            # Si no existe, lo preparamos para guardarlo como fila nueva
+                            ultimo_id += 1
+                            nueva_fila = [ultimo_id, n_excel, l_excel, c_excel, v_excel, "Farmacia Central"]
+                            filas_nuevas.append(nueva_fila)
+                            
+                            # Lo agregamos a la memoria por si se repite más abajo en el mismo Excel
+                            nueva_fila_df = pd.DataFrame([{'id': ultimo_id, 'nombre': n_excel, 'lote': l_excel, 'cantidad': c_excel, 'vencimiento': v_excel, 'sector': 'Farmacia Central'}])
+                            df_actual = pd.concat([df_actual, nueva_fila_df], ignore_index=True)
                     
-                    hoja.append_rows(filas_a_subir)
-                    st.success(f"🚀 ¡Éxito! Se cargaron {len(filas_a_subir)} medicamentos nuevos.")
+                    # Mandamos las filas nuevas todas juntas al final
+                    if filas_nuevas:
+                        hoja.append_rows(filas_nuevas)
+                        
+                    st.success(f"🚀 ¡Completado! Se crearon {len(filas_nuevas)} lotes nuevos y se actualizaron {actualizaciones} lotes existentes.")
                     st.rerun()
-            except KeyError as e:
-                st.error(f"❌ Error: No se encontró la columna {e}. Revisa que los títulos en el Excel estén bien escritos.")
             except Exception as e:
                 st.error(f"❌ Error al procesar el Excel. Detalle técnico: {e}")
 
@@ -153,13 +206,12 @@ elif st.session_state.menu == "carga":
 # --- PANTALLAS VACÍAS (Stock y Descarga) ---
 # ==========================================
 elif st.session_state.menu == "stock":
-    # Aquí también restablecemos el estilo por las dudas
     st.markdown("<style>.block-container { padding-top: 2rem; }</style>", unsafe_allow_html=True)
     st.title("📋 Stock de Farmacia")
     if st.button("⬅️ Volver al Menú principal"):
         st.session_state.menu = "inicio"
         st.rerun()
-    st.info("Aquí pondremos la tabla de stock con los colores de vencimiento.")
+    st.info("Aquí pondremos la tabla de stock.")
 
 elif st.session_state.menu == "descarga":
     st.markdown("<style>.block-container { padding-top: 2rem; }</style>", unsafe_allow_html=True)
@@ -167,4 +219,4 @@ elif st.session_state.menu == "descarga":
     if st.button("⬅️ Volver al Menú principal"):
         st.session_state.menu = "inicio"
         st.rerun()
-    st.info("Aquí pondremos la lógica para descontar del stock.")
+    st.info("Aquí pondremos la lógica para descontar.")
