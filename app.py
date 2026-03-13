@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 import gspread
+import json
 
 # Configuración de la página
 st.set_page_config(page_title="Gestión de Stock - Hospital", layout="wide")
@@ -13,11 +14,11 @@ st.markdown("---")
 @st.cache_resource
 def conectar_sheets():
     try:
-        # Modo Nube: Intenta usar las llaves secretas de Streamlit Cloud
-        credenciales = dict(st.secrets["gcp_service_account"])
-        gc = gspread.service_account_from_dict(credenciales)
+        # Modo Nube: Lee el secreto como un diccionario de texto
+        credenciales_dict = json.loads(st.secrets["google_credentials"])
+        gc = gspread.service_account_from_dict(credenciales_dict)
     except Exception:
-        # Modo Local: Si no está en la nube, usa tu archivo local
+        # Modo Local: Si falla, usa tu archivo de la PC
         gc = gspread.service_account(filename='credenciales.json')
         
     sh = gc.open("Inventario Farmacia Hospital")
@@ -25,9 +26,7 @@ def conectar_sheets():
 
 hoja = conectar_sheets()
 
-# ... (DE AQUÍ PARA ABAJO, EL CÓDIGO SIGUE EXACTAMENTE IGUAL A COMO LO TENÍAS) ...
-# def obtener_datos():
-#     datos = hoja.get_all_records()
+# ... (EL RESTO DEL CÓDIGO SIGUE IGUAL) ...
 
 # 2. OBTENER DATOS EN TIEMPO REAL
 def obtener_datos():
