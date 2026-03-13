@@ -66,9 +66,10 @@ elif st.session_state.menu == "carga":
         st.session_state.menu = "inicio"
         st.rerun()
 
-    # Formulario de entrada
-    with st.container():
-        st.markdown("### Ingrese los datos del nuevo lote")
+    # Creamos pestañas para organizar las dos formas de carga
+    tab1, tab2 = st.tabs(["Carga Manual", "Carga Masiva (Excel)"])
+
+    with tab1:
         with st.form("form_carga", clear_on_submit=True):
             col_a, col_b = st.columns(2)
             with col_a:
@@ -78,30 +79,60 @@ elif st.session_state.menu == "carga":
                 cantidad = st.number_input("Cantidad", min_value=1, step=1)
                 vencimiento = st.date_input("Fecha de Vencimiento")
             
-            btn_guardar = st.form_submit_button("Guardar en Inventario")
+            btn_guardar = st.form_submit_button("Guardar Individual")
 
         if btn_guardar:
             if nombre and lote:
-                # Obtenemos datos actuales para generar el ID
                 datos_actuales = hoja.get_all_records()
-                df_temp = pd.DataFrame(datos_actuales)
-                nuevo_id = 1 if df_temp.empty else int(df_temp['id'].max()) + 1
-                
-                # Preparamos la fila y la mandamos a Google Sheets
+                nuevo_id = 1 if not datos_actuales else int(pd.DataFrame(datos_actuales)['id'].max()) + 1
                 nueva_fila = [nuevo_id, nombre, lote, cantidad, str(vencimiento), "Farmacia Central"]
                 hoja.append_row(nueva_fila)
-                st.success(f"✅ {nombre} (Lote: {lote}) guardado correctamente.")
-            else:
-                st.error("⚠️ Por favor completa el Nombre y el Lote.")
+                st.success(f"✅ {nombre} guardado.")
+                st.rerun()
+
+    with tab2:
+        st.markdown("### Subir archivo Excel")
+        st.info("El Excel debe tener 4 columnas: Nombre, Lote, Vencimiento (AAAA-MM-DD) y Cantidad.")
+        
+        archivo_subido = st.file_uploader("Selecciona el archivo Excel", type=["xlsx", "xls"])
+        
+        if archivo_subido is not None:
+            try:
+                # Leemos el Excel
+                df_excel = pd.read_excel(archivo_subido)
+                
+                # Mostramos una vista previa para que el usuario confirme
+                st.write("Vista previa de los datos a cargar:")
+                st.dataframe(df_excel)
+
+                if st.button("Confirmar Carga Masiva"):
+                    datos_actuales = hoja.get_all_records()
+                    ultimo_id = 1 if not datos_actuales else int(pd.DataFrame(datos_actuales)['id'].max()) + 1
+                    
+                    filas_a_subir = []
+                    for i, fila in df_excel.iterrows():
+                        # Armamos la lista con el formato de tu Google Sheet
+                        # [id, nombre, lote, cantidad, vencimiento, sector]
+                        nueva_fila = [
+                            ultimo_id + i, 
+                            fila.iloc[0], # Nombre
+                            str(fila.iloc[1]), # Lote
+                            int(fila.iloc[2]), # Cantidad
+                            str(fila.iloc[3]), # Vencimiento
+                            "Farmacia Central"
+                        ]
+                        filas_a_subir.append(nueva_fila)
+                    
+                    # Mandamos todo el bloque a Google Sheets de una sola vez
+                    hoja.append_rows(filas_a_subir)
+                    st.success(f"🚀 ¡Éxito! Se cargaron {len(filas_a_subir)} medicamentos nuevos.")
+                    st.rerun()
+            except Exception as e:
+                st.error(f"❌ Error al procesar el Excel: {e}")
 
     st.markdown("---")
-    
-    # Lista de lo que hay en el sistema (debajo del formulario)
-    st.subheader("📋 Últimos registros cargados")
+    # Mostrar últimos registros (esto queda igual)
     datos = hoja.get_all_records()
     if datos:
-        df_mostrar = pd.DataFrame(datos)
-        # Mostramos los últimos 10 cargados (al final de la lista)
-        st.table(df_mostrar.tail(10)) 
-    else:
-        st.info("Aún no hay medicamentos cargados.")
+        st.subheader("📋 Últimos registros en la nube")
+        st.table(pd.DataFrame(datos).tail(10))
