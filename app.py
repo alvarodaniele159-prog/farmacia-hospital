@@ -203,20 +203,81 @@ elif st.session_state.menu == "carga":
         st.table(pd.DataFrame(datos).tail(10))
 
 # ==========================================
-# --- PANTALLAS VACÍAS (Stock y Descarga) ---
+# --- PANTALLA DE DESCARGA (Retiros) ---
 # ==========================================
-elif st.session_state.menu == "stock":
-    st.markdown("<style>.block-container { padding-top: 2rem; }</style>", unsafe_allow_html=True)
-    st.title("📋 Stock de Farmacia")
-    if st.button("⬅️ Volver al Menú principal"):
-        st.session_state.menu = "inicio"
-        st.rerun()
-    st.info("Aquí pondremos la tabla de stock.")
-
 elif st.session_state.menu == "descarga":
-    st.markdown("<style>.block-container { padding-top: 2rem; }</style>", unsafe_allow_html=True)
+    # Restablecemos el estilo normal de los botones para esta pantalla
+    st.markdown("<style>.block-container { padding-top: 2rem; } div.stButton > button { height: auto; width: auto; padding: 10px 20px; border-radius: 8px; }</style>", unsafe_allow_html=True)
+    
     st.title("⬇️ Retiro de Medicamentos")
+    
     if st.button("⬅️ Volver al Menú principal"):
         st.session_state.menu = "inicio"
         st.rerun()
-    st.info("Aquí pondremos la lógica para descontar.")
+
+    tab1, tab2 = st.tabs(["Descarga Individual", "Descarga Masiva (Excel)"])
+
+    with tab1:
+        st.markdown("### Seleccione el medicamento a retirar")
+        
+        # 1. Traemos los datos actuales de la base de datos
+        datos_actuales = hoja.get_all_records()
+        df_inventario = pd.DataFrame(datos_actuales)
+        
+        if df_inventario.empty:
+            st.warning("⚠️ El inventario está vacío. No hay nada para retirar.")
+        else:
+            # 2. Filtramos para ocultar los medicamentos que ya están en 0 stock
+            df_con_stock = df_inventario[df_inventario['cantidad'] > 0]
+            
+            if df_con_stock.empty:
+                st.warning("⚠️ No hay medicamentos con stock disponible en este momento.")
+            else:
+                # 3. Creamos el buscador mágico de Streamlit (selectbox)
+                # Extraemos los nombres únicos y los ordenamos alfabéticamente
+                nombres_unicos = sorted(df_con_stock['nombre'].astype(str).str.strip().unique())
+                med_seleccionado = st.selectbox("🔍 Buscar Medicamento (Escribe para filtrar)", options=["Seleccione una opción..."] + nombres_unicos)
+                
+                # 4. Lógica en cadena: Si eligen un medicamento, mostramos SUS lotes
+                if med_seleccionado != "Seleccione una opción...":
+                    df_filtrado = df_con_stock[df_con_stock['nombre'].str.strip() == med_seleccionado]
+                    
+                    opciones_lote = ["Seleccione el lote..."]
+                    diccionario_lotes = {} # Usamos esto como "memoria secreta" para guardar la fila exacta
+                    
+                    # Armamos las opciones visuales para el usuario
+                    for idx, fila in df_filtrado.iterrows():
+                        texto_opcion = f"Lote: {fila['lote']} | Vence: {fila['vencimiento']} | Stock Actual: {fila['cantidad']}"
+                        opciones_lote.append(texto_opcion)
+                        
+                        # Guardamos los datos técnicos vinculados a ese texto
+                        diccionario_lotes[texto_opcion] = {
+                            'indice_real': idx, 
+                            'stock_actual': int(fila['cantidad']),
+                            'nombre': fila['nombre'],
+                            'lote': fila['lote']
+                        }
+                        
+                    lote_seleccionado = st.selectbox("📦 Seleccionar Lote y Vencimiento", options=opciones_lote)
+                    
+                    # 5. Lógica final: Si eligen el lote, pedimos la cantidad y descontamos
+                    if lote_seleccionado != "Seleccione el lote...":
+                        datos_lote = diccionario_lotes[lote_seleccionado]
+                        stock_maximo = datos_lote['stock_actual']
+                        
+                        # El número máximo que pueden retirar es el stock que hay (evita stock negativo)
+                        cantidad_a_retirar = st.number_input("Cantidad a retirar", min_value=1, max_value=stock_maximo, step=1)
+                        
+                        if st.button("Confirmar Descarga", type="primary"):
+                            # Calculamos la posición exacta en el Excel (+2 por el índice 0 y la cabecera)
+                            fila_google = int(datos_lote['indice_real']) + 2
+                            nuevo_stock = stock_maximo - cantidad_a_retirar
+                            
+                            # Actualizamos solo la celda de cantidad
+                            hoja.update_cell(fila_google, 4, nuevo_stock)
+                            
+                            st.success(f"✅ ¡Éxito! Se retiraron {cantidad_a_retirar} unidades de {datos_lote['nombre']} (Lote: {datos_lote['lote']}). Quedan {nuevo_stock} en stock.")
+                            st.rerun()
+
+    with tab2:
+        st.info("Aquí programaremos la descarga masiva con Excel cuando estés listo.")
