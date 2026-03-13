@@ -111,7 +111,7 @@ elif st.session_state.menu == "carga":
 
     with tab2:
         st.markdown("### Subir archivo Excel")
-        st.info("Si el lote ya existe, se sumará la cantidad automáticamente.")
+        st.info("El Excel debe tener los títulos exactos: Nombre, Lote, Vencimiento, Cantidad")
         archivo_subido = st.file_uploader("Selecciona el archivo Excel", type=["xlsx", "xls"], key="carga_masiva")
         
         if archivo_subido is not None:
@@ -236,38 +236,49 @@ elif st.session_state.menu == "descarga":
 
     # --- TAB 2: MASIVA ---
     with tab2:
-        st.markdown("### 📥 Asignación de Lotes por Excel")
-        st.info("El Excel debe tener la **Fila 1 con títulos**. El medicamento en la **Columna B** y la cantidad en la **Columna C**.")
+        st.markdown("### 📥 Procesar Planilla de Pedidos (Excel)")
+        st.info("Sube tu archivo 'PLANILLA DE RELEVAMIENTO DE PEDIDOS'. El sistema leerá automáticamente a partir de la fila 3.")
         
-        archivo_descarga = st.file_uploader("Selecciona el Excel de Retiros", type=["xlsx", "xls"], key="descarga_masiva")
+        archivo_descarga = st.file_uploader("Selecciona la Planilla de Excel", type=["xlsx", "xls"], key="descarga_masiva")
         
         if archivo_descarga is not None and not df_con_stock.empty:
             try:
-                df_excel_descarga = pd.read_excel(archivo_descarga)
-                st.write("---")
+                # LA MAGIA ESTÁ AQUÍ: header=1 le dice a Python que ignore la fila 1 del logo y use la fila 2 como títulos.
+                df_excel_descarga = pd.read_excel(archivo_descarga, header=1)
                 
+                # Limpiamos las filas vacías que puedan quedar al final del excel
+                col_medicamento = df_excel_descarga.columns[1] # Toma la columna B
+                df_excel_descarga = df_excel_descarga.dropna(subset=[col_medicamento])
+
+                st.write("---")
                 todo_listo = True
                 operaciones_a_realizar = []
 
-                # Iteramos por cada fila del Excel que subió el usuario
+                # Iteramos por los datos reales
                 for i, fila_excel in df_excel_descarga.iterrows():
-                    # Python usa índice 0 para Col A, 1 para Col B, 2 para Col C
-                    med_req = str(fila_excel.iloc[1]).strip() # Columna B
-                    cant_req = int(fila_excel.iloc[2])        # Columna C
+                    med_req = str(fila_excel.iloc[1]).strip() # Columna B (Medicamento)
                     
-                    st.markdown(f"📦 **{i+1}. {med_req}** | Necesitas retirar: **{cant_req}** unid.")
+                    # Intentamos leer la cantidad, si está vacía o es un texto, la saltamos
+                    try:
+                        cant_req = int(fila_excel.iloc[2]) # Columna C (Entrega)
+                    except ValueError:
+                        continue 
+                        
+                    if cant_req <= 0:
+                        continue
+                        
+                    st.markdown(f"📦 **{med_req}** | Necesitas retirar: **{cant_req}** unid.")
                     
                     df_filtrado = df_con_stock[df_con_stock['nombre'] == med_req]
                     
                     if df_filtrado.empty:
-                        st.error(f"❌ No tienes stock de {med_req} en ningún lote.")
+                        st.error(f"❌ No tienes stock de {med_req} en tu inventario.")
                         todo_listo = False
                     else:
                         col_lote, col_venc, col_status = st.columns(3)
                         
                         with col_lote:
                             lotes_disp = sorted(df_filtrado['lote'].unique())
-                            # key=f"lote_{i}" es vital para que cada fila del Excel tenga su propio selector independiente
                             lote_sel = st.selectbox("Lote", options=["Seleccione..."] + lotes_disp, key=f"lote_desc_{i}")
                             
                         with col_venc:
@@ -277,7 +288,7 @@ elif st.session_state.menu == "descarga":
                                 venc_disp = sorted(df_lote['vencimiento'].unique())
                                 if len(venc_disp) == 1:
                                     venc_sel = venc_disp[0]
-                                    st.info(venc_sel) # Se auto-completa visualmente
+                                    st.info(venc_sel)
                                 else:
                                     venc_sel = st.selectbox("Vencimiento", options=["Seleccione..."] + venc_disp, key=f"venc_desc_{i}")
                                     
@@ -303,8 +314,7 @@ elif st.session_state.menu == "descarga":
                                 todo_listo = False
                     st.write("---")
 
-                # El Botón Mágico que solo aparece si no hay errores
-                if todo_listo and len(operaciones_a_realizar) == len(df_excel_descarga):
+                if todo_listo and len(operaciones_a_realizar) > 0:
                     if st.button("🚀 Confirmar Todas las Descargas", type="primary", use_container_width=True):
                         for op in operaciones_a_realizar:
                             hoja.update_cell(op['indice_excel_nube'], 4, op['nuevo_stock'])
@@ -312,7 +322,7 @@ elif st.session_state.menu == "descarga":
                         st.rerun()
 
             except Exception as e:
-                st.error(f"❌ Error al leer tu Excel. Asegúrate de tener títulos en la fila 1, el nombre en la segunda columna (B) y cantidad en la tercera (C).")
+                st.error(f"❌ Error al leer la planilla. Detalle técnico: {e}")
 
 # ==========================================
 # --- PANTALLA STOCK ---
