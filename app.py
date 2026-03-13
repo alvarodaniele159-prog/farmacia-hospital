@@ -15,7 +15,6 @@ def conectar_sheets():
         gc = gspread.service_account_from_dict(credenciales_dict)
     except:
         gc = gspread.service_account(filename='credenciales.json')
-    
     sh = gc.open("Inventario Farmacia Hospital")
     return sh.sheet1
 
@@ -113,13 +112,12 @@ elif st.session_state.menu == "carga":
     with tab2:
         st.markdown("### Subir archivo Excel")
         st.info("Si el lote ya existe, se sumará la cantidad automáticamente.")
-        archivo_subido = st.file_uploader("Selecciona el archivo Excel", type=["xlsx", "xls"])
+        archivo_subido = st.file_uploader("Selecciona el archivo Excel", type=["xlsx", "xls"], key="carga_masiva")
         
         if archivo_subido is not None:
             try:
                 df_excel = pd.read_excel(archivo_subido)
                 df_excel.columns = df_excel.columns.str.strip()
-                st.write("Vista previa:")
                 st.dataframe(df_excel)
 
                 if st.button("Confirmar Carga Masiva", type="primary"):
@@ -142,9 +140,8 @@ elif st.session_state.menu == "carga":
 
                         if not coincidencia.empty:
                             idx = coincidencia.index[0]
-                            fila_sheet = int(idx) + 2
                             nuevo_stock = int(df_actual.at[idx, 'cantidad']) + c_excel
-                            hoja.update_cell(fila_sheet, 4, nuevo_stock)
+                            hoja.update_cell(int(idx) + 2, 4, nuevo_stock)
                             df_actual.at[idx, 'cantidad'] = nuevo_stock
                             actualizaciones += 1
                         else:
@@ -172,75 +169,150 @@ elif st.session_state.menu == "descarga":
 
     tab1, tab2 = st.tabs(["Descarga Individual", "Descarga Masiva (Excel)"])
 
+    df_inventario = pd.DataFrame(hoja.get_all_records())
+    if not df_inventario.empty:
+        df_inventario['nombre'] = df_inventario['nombre'].astype(str).str.strip()
+        df_inventario['lote'] = df_inventario['lote'].astype(str).str.strip()
+        df_inventario['vencimiento'] = df_inventario['vencimiento'].astype(str).str.strip()
+        df_con_stock = df_inventario[df_inventario['cantidad'] > 0]
+    else:
+        df_con_stock = pd.DataFrame()
+
+    # --- TAB 1: INDIVIDUAL ---
     with tab1:
         st.markdown("### Complete los datos del retiro")
         st.write("---")
         
-        df_inventario = pd.DataFrame(hoja.get_all_records())
-        
-        if df_inventario.empty:
-            st.warning("⚠️ El inventario está vacío.")
+        if df_con_stock.empty:
+            st.warning("⚠️ No hay medicamentos con stock disponible.")
         else:
-            df_inventario['nombre'] = df_inventario['nombre'].astype(str).str.strip()
-            df_inventario['lote'] = df_inventario['lote'].astype(str).str.strip()
-            df_inventario['vencimiento'] = df_inventario['vencimiento'].astype(str).str.strip()
-            
-            df_con_stock = df_inventario[df_inventario['cantidad'] > 0]
-            
-            if df_con_stock.empty:
-                st.warning("⚠️ No hay medicamentos con stock disponible en este momento.")
-            else:
-                col1, col2 = st.columns(2)
+            col1, col2 = st.columns(2)
+            with col1:
+                nombres_unicos = sorted(df_con_stock['nombre'].unique())
+                med_seleccionado = st.selectbox("1️⃣ Buscar Medicamento", options=["Seleccione..."] + nombres_unicos)
                 
-                with col1:
-                    nombres_unicos = sorted(df_con_stock['nombre'].unique())
-                    med_seleccionado = st.selectbox("1️⃣ Buscar Medicamento", options=["Seleccione..."] + nombres_unicos)
+                opciones_lote = ["Seleccione..."]
+                if med_seleccionado != "Seleccione...":
+                    df_filtrado_nombre = df_con_stock[df_con_stock['nombre'] == med_seleccionado]
+                    opciones_lote = ["Seleccione..."] + sorted(df_filtrado_nombre['lote'].unique())
                     
-                    opciones_lote = ["Seleccione..."]
-                    if med_seleccionado != "Seleccione...":
-                        df_filtrado_nombre = df_con_stock[df_con_stock['nombre'] == med_seleccionado]
-                        opciones_lote = ["Seleccione..."] + sorted(df_filtrado_nombre['lote'].unique())
+                lote_seleccionado = st.selectbox("2️⃣ Seleccionar Lote", options=opciones_lote)
+
+            with col2:
+                opciones_venc = ["Seleccione..."]
+                stock_maximo = 100 
+                indice_real = None
+
+                if lote_seleccionado != "Seleccione...":
+                    df_filtrado_lote = df_con_stock[(df_con_stock['nombre'] == med_seleccionado) & (df_con_stock['lote'] == lote_seleccionado)]
+                    venc_unicos = sorted(df_filtrado_lote['vencimiento'].unique())
+                    opciones_venc = venc_unicos if len(venc_unicos) == 1 else ["Seleccione..."] + venc_unicos
                         
-                    lote_seleccionado = st.selectbox("2️⃣ Seleccionar Lote", options=opciones_lote)
+                venc_seleccionado = st.selectbox("3️⃣ Fecha de Vencimiento", options=opciones_venc)
+                
+                if venc_seleccionado != "Seleccione...":
+                    fila_exacta = df_con_stock[(df_con_stock['nombre'] == med_seleccionado) & (df_con_stock['lote'] == lote_seleccionado) & (df_con_stock['vencimiento'] == venc_seleccionado)]
+                    if not fila_exacta.empty:
+                        stock_maximo = int(fila_exacta.iloc[0]['cantidad'])
+                        indice_real = fila_exacta.index[0]
+                        st.info(f"📦 Stock disponible: **{stock_maximo}** unidades")
 
-                with col2:
-                    opciones_venc = ["Seleccione..."]
-                    if lote_seleccionado != "Seleccione...":
-                        df_filtrado_lote = df_con_stock[(df_con_stock['nombre'] == med_seleccionado) & (df_con_stock['lote'] == lote_seleccionado)]
-                        venc_unicos = sorted(df_filtrado_lote['vencimiento'].unique())
-                        opciones_venc = venc_unicos if len(venc_unicos) == 1 else ["Seleccione..."] + venc_unicos
-                            
-                    venc_seleccionado = st.selectbox("3️⃣ Fecha de Vencimiento", options=opciones_venc)
-                    
-                    stock_maximo = 100 
-                    indice_real = None
-                    
-                    if venc_seleccionado != "Seleccione...":
-                        fila_exacta = df_con_stock[(df_con_stock['nombre'] == med_seleccionado) & (df_con_stock['lote'] == lote_seleccionado) & (df_con_stock['vencimiento'] == venc_seleccionado)]
-                        if not fila_exacta.empty:
-                            stock_maximo = int(fila_exacta.iloc[0]['cantidad'])
-                            indice_real = fila_exacta.index[0]
-                            st.info(f"📦 Stock disponible: **{stock_maximo}** unidades")
+                tope_input = stock_maximo if venc_seleccionado != "Seleccione..." else 100
+                cantidad_a_retirar = st.number_input("4️⃣ Cantidad a retirar", min_value=1, max_value=tope_input, step=1)
 
-                    tope_input = stock_maximo if venc_seleccionado != "Seleccione..." else 100
-                    cantidad_a_retirar = st.number_input("4️⃣ Cantidad a retirar", min_value=1, max_value=tope_input, step=1)
+            st.write("#")
+            btn_confirmar = st.button("✅ Confirmar Descarga", type="primary", use_container_width=True)
 
-                st.write("#")
-                btn_confirmar = st.button("✅ Confirmar Descarga", type="primary", use_container_width=True)
+            if btn_confirmar:
+                if "Seleccione..." in [med_seleccionado, lote_seleccionado, venc_seleccionado]:
+                    st.error("⚠️ Faltó seleccionar algún dato.")
+                elif cantidad_a_retirar > stock_maximo:
+                    st.error(f"❌ Solo hay {stock_maximo} unidades disponibles.")
+                else:
+                    fila_google = int(indice_real) + 2
+                    nuevo_stock = stock_maximo - cantidad_a_retirar
+                    hoja.update_cell(fila_google, 4, nuevo_stock)
+                    st.success(f"🎉 Retiraste {cantidad_a_retirar} de {med_seleccionado}. Stock actualizado.")
 
-                if btn_confirmar:
-                    if "Seleccione..." in [med_seleccionado, lote_seleccionado, venc_seleccionado]:
-                        st.error("⚠️ Faltó seleccionar algún dato.")
-                    elif cantidad_a_retirar > stock_maximo:
-                        st.error(f"❌ Solo hay {stock_maximo} unidades disponibles.")
-                    else:
-                        fila_google = int(indice_real) + 2
-                        nuevo_stock = stock_maximo - cantidad_a_retirar
-                        hoja.update_cell(fila_google, 4, nuevo_stock)
-                        st.success(f"🎉 Retiraste {cantidad_a_retirar} de {med_seleccionado}. Stock actualizado a {nuevo_stock}.")
-                            
+    # --- TAB 2: MASIVA ---
     with tab2:
-        st.info("Aquí programaremos la descarga masiva con Excel cuando estés listo.")
+        st.markdown("### 📥 Asignación de Lotes por Excel")
+        st.info("El Excel debe tener la **Fila 1 con títulos**. El medicamento en la **Columna B** y la cantidad en la **Columna C**.")
+        
+        archivo_descarga = st.file_uploader("Selecciona el Excel de Retiros", type=["xlsx", "xls"], key="descarga_masiva")
+        
+        if archivo_descarga is not None and not df_con_stock.empty:
+            try:
+                df_excel_descarga = pd.read_excel(archivo_descarga)
+                st.write("---")
+                
+                todo_listo = True
+                operaciones_a_realizar = []
+
+                # Iteramos por cada fila del Excel que subió el usuario
+                for i, fila_excel in df_excel_descarga.iterrows():
+                    # Python usa índice 0 para Col A, 1 para Col B, 2 para Col C
+                    med_req = str(fila_excel.iloc[1]).strip() # Columna B
+                    cant_req = int(fila_excel.iloc[2])        # Columna C
+                    
+                    st.markdown(f"📦 **{i+1}. {med_req}** | Necesitas retirar: **{cant_req}** unid.")
+                    
+                    df_filtrado = df_con_stock[df_con_stock['nombre'] == med_req]
+                    
+                    if df_filtrado.empty:
+                        st.error(f"❌ No tienes stock de {med_req} en ningún lote.")
+                        todo_listo = False
+                    else:
+                        col_lote, col_venc, col_status = st.columns(3)
+                        
+                        with col_lote:
+                            lotes_disp = sorted(df_filtrado['lote'].unique())
+                            # key=f"lote_{i}" es vital para que cada fila del Excel tenga su propio selector independiente
+                            lote_sel = st.selectbox("Lote", options=["Seleccione..."] + lotes_disp, key=f"lote_desc_{i}")
+                            
+                        with col_venc:
+                            venc_sel = "Seleccione..."
+                            if lote_sel != "Seleccione...":
+                                df_lote = df_filtrado[df_filtrado['lote'] == lote_sel]
+                                venc_disp = sorted(df_lote['vencimiento'].unique())
+                                if len(venc_disp) == 1:
+                                    venc_sel = venc_disp[0]
+                                    st.info(venc_sel) # Se auto-completa visualmente
+                                else:
+                                    venc_sel = st.selectbox("Vencimiento", options=["Seleccione..."] + venc_disp, key=f"venc_desc_{i}")
+                                    
+                        with col_status:
+                            if lote_sel != "Seleccione..." and venc_sel != "Seleccione...":
+                                fila_exacta = df_filtrado[(df_filtrado['lote'] == lote_sel) & (df_filtrado['vencimiento'] == venc_sel)]
+                                if not fila_exacta.empty:
+                                    stock_real = int(fila_exacta.iloc[0]['cantidad'])
+                                    idx_real = fila_exacta.index[0]
+                                    
+                                    if cant_req > stock_real:
+                                        st.error(f"❌ Faltan unidades. Solo hay {stock_real}.")
+                                        todo_listo = False
+                                    else:
+                                        st.success(f"✅ OK (Quedarán {stock_real - cant_req})")
+                                        operaciones_a_realizar.append({
+                                            'indice_excel_nube': int(idx_real) + 2,
+                                            'nuevo_stock': stock_real - cant_req,
+                                            'nombre': med_req
+                                        })
+                            else:
+                                st.warning("⚠️ Elige lote y fecha")
+                                todo_listo = False
+                    st.write("---")
+
+                # El Botón Mágico que solo aparece si no hay errores
+                if todo_listo and len(operaciones_a_realizar) == len(df_excel_descarga):
+                    if st.button("🚀 Confirmar Todas las Descargas", type="primary", use_container_width=True):
+                        for op in operaciones_a_realizar:
+                            hoja.update_cell(op['indice_excel_nube'], 4, op['nuevo_stock'])
+                        st.success(f"🎉 ¡Éxito! Base de datos actualizada con los retiros.")
+                        st.rerun()
+
+            except Exception as e:
+                st.error(f"❌ Error al leer tu Excel. Asegúrate de tener títulos en la fila 1, el nombre en la segunda columna (B) y cantidad en la tercera (C).")
 
 # ==========================================
 # --- PANTALLA STOCK ---
