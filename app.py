@@ -25,36 +25,26 @@ if 'menu' not in st.session_state:
     st.session_state.menu = "inicio"
 
 # ==========================================
-# --- PANTALLA DE INICIO ---
+# --- PANTALLA DE INICIO (Diseño Nativo) ---
 # ==========================================
 if st.session_state.menu == "inicio":
-    st.markdown("""
-        <style>
-        .block-container { display: flex; flex-direction: column; justify-content: center; align-items: center; padding-top: 5rem; }
-        div.stButton > button {
-            background-color: #E0E0E0; color: #000000; height: 180px; width: 250px;
-            border-radius: 25px; border: none; font-size: 22px; font-weight: bold;
-            box-shadow: 0px 4px 15px rgba(0,0,0,0.3); transition: 0.3s; margin: 10px;
-        }
-        div.stButton > button:hover { background-color: #FFFFFF; transform: translateY(-10px); }
-        </style>
-        """, unsafe_allow_html=True)
-
-    st.title("🏥 Sistema de Farmacia")
-    st.write("#")
+    st.title("🏥 Sistema de Farmacia Hospitalaria")
+    st.write("Seleccione una operación:")
+    st.write("---")
     
-    empty1, col1, col2, col3, empty2 = st.columns([1, 2, 2, 2, 1])
+    # Botones nativos de Streamlit ocupando todo el ancho de su columna
+    col1, col2, col3 = st.columns(3)
     
     with col1:
-        if st.button("CARGA\n\n➕"):
+        if st.button("➕ INGRESAR CARGA", use_container_width=True):
             st.session_state.menu = "carga"
             st.rerun()
     with col2:
-        if st.button("STOCK\n\n📋"):
+        if st.button("📋 CONTROL DE STOCK", use_container_width=True):
             st.session_state.menu = "stock"
             st.rerun()
     with col3:
-        if st.button("DESCARGA\n\n⬇️"):
+        if st.button("⬇️ RETIRAR MEDICAMENTO", use_container_width=True):
             st.session_state.menu = "descarga"
             st.rerun()
 
@@ -62,7 +52,6 @@ if st.session_state.menu == "inicio":
 # --- PANTALLA DE CARGA ---
 # ==========================================
 elif st.session_state.menu == "carga":
-    st.markdown("<style>.block-container { padding-top: 2rem; } div.stButton > button { height: auto; width: auto; padding: 10px 20px; border-radius: 8px; }</style>", unsafe_allow_html=True)
     st.title("📝 Registro de Medicamentos")
     
     if st.button("⬅️ Volver al Menú principal"):
@@ -160,7 +149,6 @@ elif st.session_state.menu == "carga":
 # --- PANTALLA DE DESCARGA ---
 # ==========================================
 elif st.session_state.menu == "descarga":
-    st.markdown("<style>.block-container { padding-top: 2rem; } div.stButton > button { height: auto; width: auto; padding: 10px 20px; border-radius: 8px; }</style>", unsafe_allow_html=True)
     st.title("⬇️ Retiro de Medicamentos")
     
     if st.button("⬅️ Volver al Menú principal"):
@@ -178,8 +166,8 @@ elif st.session_state.menu == "descarga":
     else:
         df_con_stock = pd.DataFrame()
 
+    # --- TAB 1: INDIVIDUAL ---
     with tab1:
-        st.markdown("### Complete los datos del retiro")
         st.write("---")
         
         if df_con_stock.empty:
@@ -233,10 +221,9 @@ elif st.session_state.menu == "descarga":
                     hoja.update_cell(fila_google, 4, nuevo_stock)
                     st.success(f"🎉 Retiraste {cantidad_a_retirar} de {med_seleccionado}. Stock actualizado.")
 
+    # --- TAB 2: MASIVA ---
     with tab2:
-        st.markdown("### 📥 Procesar Planilla de Pedidos (Excel)")
-        st.info("Sube tu archivo 'PLANILLA DE RELEVAMIENTO DE PEDIDOS'.")
-        
+        st.markdown("### 📥 Procesar Planilla de Pedidos")
         archivo_descarga = st.file_uploader("Selecciona la Planilla de Excel", type=["xlsx", "xls"], key="descarga_masiva")
         
         if archivo_descarga is not None and not df_con_stock.empty:
@@ -316,12 +303,10 @@ elif st.session_state.menu == "descarga":
             except Exception as e:
                 st.error(f"❌ Error al leer la planilla. Detalle técnico: {e}")
 
-
 # ==========================================
-# --- PANTALLA STOCK ---
+# --- PANTALLA STOCK (Con Alertas) ---
 # ==========================================
 elif st.session_state.menu == "stock":
-    st.markdown("<style>.block-container { padding-top: 2rem; } div.stButton > button { height: auto; width: auto; padding: 10px 20px; border-radius: 8px; }</style>", unsafe_allow_html=True)
     st.title("📋 Control de Inventario")
     
     if st.button("⬅️ Volver al Menú principal"):
@@ -334,40 +319,60 @@ elif st.session_state.menu == "stock":
         st.warning("⚠️ No hay medicamentos registrados en la base de datos.")
     else:
         df_inventario = pd.DataFrame(datos_actuales)
-        
-        # Limpiamos los nombres para asegurar agrupaciones correctas
         df_inventario['nombre'] = df_inventario['nombre'].astype(str).str.strip()
-        
-        # Filtramos para mostrar solo lo que tiene stock real (>0)
         df_con_stock = df_inventario[df_inventario['cantidad'] > 0].copy()
         
         if df_con_stock.empty:
             st.warning("⚠️ Todos los medicamentos están en stock 0.")
         else:
+            # --- MOTOR DE CÁLCULO DE VENCIMIENTOS ---
+            # Convertimos las fechas de texto a un formato matemático (Datetime)
+            df_con_stock['vencimiento_dt'] = pd.to_datetime(df_con_stock['vencimiento'], errors='coerce')
+            
+            # Tomamos la fecha de hoy
+            hoy = pd.Timestamp(datetime.now().date())
+            
+            # Calculamos cuántos días faltan para cada lote
+            df_con_stock['dias_venc'] = (df_con_stock['vencimiento_dt'] - hoy).dt.days
+            
+            # Función para asignar el semáforo
+            def estado_vencimiento(dias):
+                if pd.isna(dias):
+                    return "⚪ Error de fecha"
+                if dias < 0:
+                    return "🔴 Vencido"
+                elif dias <= 30:
+                    return "🟡 Próximo (≤30 días)"
+                else:
+                    return "🟢 Vigente"
+
+            # Creamos la nueva columna de Estado
+            df_con_stock['Estado'] = df_con_stock['dias_venc'].apply(estado_vencimiento)
+
+            # --- ALERTAS VISUALES GLOBALES ---
+            vencidos = df_con_stock[df_con_stock['dias_venc'] < 0]
+            proximos = df_con_stock[(df_con_stock['dias_venc'] >= 0) & (df_con_stock['dias_venc'] <= 30)]
+
+            if not vencidos.empty:
+                st.error(f"🚨 ALERTA ROJA: Tienes {len(vencidos)} lote(s) VENCIDO(S) ocupando espacio en farmacia.")
+            if not proximos.empty:
+                st.warning(f"⚠️ ATENCIÓN: Tienes {len(proximos)} lote(s) que vencerán en menos de un mes.")
+
+            st.write("---")
+
             tab1, tab2 = st.tabs(["📦 Stock Detallado (Por Lote)", "📊 Stock Agrupado (Total por Medicamento)"])
 
             with tab1:
-                st.markdown("### Vista Detallada")
-                st.write("Muestra cada ingreso de forma individual. Ideal para auditoría de lotes.")
+                # Ordenamos la lista para que los vencidos y próximos queden arriba de todo
+                df_detallado = df_con_stock.sort_values(by=['dias_venc', 'nombre'])
                 
-                # Ordenamos alfabéticamente por nombre
-                df_detallado = df_con_stock.sort_values(by='nombre')
+                df_mostrar_detallado = df_detallado[['nombre', 'lote', 'vencimiento', 'cantidad', 'Estado']]
+                df_mostrar_detallado.columns = ['Medicamento', 'Lote', 'Vencimiento', 'Cantidad', 'Estado']
                 
-                # Seleccionamos las columnas que importan y las renombramos para que se vea lindo
-                df_mostrar_detallado = df_detallado[['nombre', 'lote', 'vencimiento', 'cantidad']]
-                df_mostrar_detallado.columns = ['Medicamento', 'Lote', 'Vencimiento', 'Cantidad Disponible']
-                
-                # Mostramos la tabla interactiva
                 st.dataframe(df_mostrar_detallado, use_container_width=True, hide_index=True)
 
             with tab2:
-                st.markdown("### Vista Consolidada")
-                st.write("Suma las cantidades de todos los lotes de un mismo medicamento. Ideal para planificar compras.")
-                
-                # MAGIA DE PANDAS: Agrupamos por nombre y sumamos la cantidad
                 df_agrupado = df_con_stock.groupby('nombre')['cantidad'].sum().reset_index()
-                
-                # Ordenamos alfabéticamente por si acaso
                 df_agrupado = df_agrupado.sort_values(by='nombre')
                 df_agrupado.columns = ['Medicamento', 'Stock Total Disponible']
                 
