@@ -178,7 +178,6 @@ elif st.session_state.menu == "descarga":
     else:
         df_con_stock = pd.DataFrame()
 
-    # --- TAB 1: INDIVIDUAL ---
     with tab1:
         st.markdown("### Complete los datos del retiro")
         st.write("---")
@@ -234,33 +233,26 @@ elif st.session_state.menu == "descarga":
                     hoja.update_cell(fila_google, 4, nuevo_stock)
                     st.success(f"🎉 Retiraste {cantidad_a_retirar} de {med_seleccionado}. Stock actualizado.")
 
-    # --- TAB 2: MASIVA ---
     with tab2:
         st.markdown("### 📥 Procesar Planilla de Pedidos (Excel)")
-        st.info("Sube tu archivo 'PLANILLA DE RELEVAMIENTO DE PEDIDOS'. El sistema leerá automáticamente a partir de la fila 3.")
+        st.info("Sube tu archivo 'PLANILLA DE RELEVAMIENTO DE PEDIDOS'.")
         
         archivo_descarga = st.file_uploader("Selecciona la Planilla de Excel", type=["xlsx", "xls"], key="descarga_masiva")
         
         if archivo_descarga is not None and not df_con_stock.empty:
             try:
-                # LA MAGIA ESTÁ AQUÍ: header=1 le dice a Python que ignore la fila 1 del logo y use la fila 2 como títulos.
                 df_excel_descarga = pd.read_excel(archivo_descarga, header=1)
-                
-                # Limpiamos las filas vacías que puedan quedar al final del excel
-                col_medicamento = df_excel_descarga.columns[1] # Toma la columna B
+                col_medicamento = df_excel_descarga.columns[1] 
                 df_excel_descarga = df_excel_descarga.dropna(subset=[col_medicamento])
 
                 st.write("---")
                 todo_listo = True
                 operaciones_a_realizar = []
 
-                # Iteramos por los datos reales
                 for i, fila_excel in df_excel_descarga.iterrows():
-                    med_req = str(fila_excel.iloc[1]).strip() # Columna B (Medicamento)
-                    
-                    # Intentamos leer la cantidad, si está vacía o es un texto, la saltamos
+                    med_req = str(fila_excel.iloc[1]).strip() 
                     try:
-                        cant_req = int(fila_excel.iloc[2]) # Columna C (Entrega)
+                        cant_req = int(fila_excel.iloc[2]) 
                     except ValueError:
                         continue 
                         
@@ -324,13 +316,59 @@ elif st.session_state.menu == "descarga":
             except Exception as e:
                 st.error(f"❌ Error al leer la planilla. Detalle técnico: {e}")
 
+
 # ==========================================
 # --- PANTALLA STOCK ---
 # ==========================================
 elif st.session_state.menu == "stock":
-    st.markdown("<style>.block-container { padding-top: 2rem; }</style>", unsafe_allow_html=True)
-    st.title("📋 Stock de Farmacia")
+    st.markdown("<style>.block-container { padding-top: 2rem; } div.stButton > button { height: auto; width: auto; padding: 10px 20px; border-radius: 8px; }</style>", unsafe_allow_html=True)
+    st.title("📋 Control de Inventario")
+    
     if st.button("⬅️ Volver al Menú principal"):
         st.session_state.menu = "inicio"
         st.rerun()
-    st.info("Próximamente: Tabla de stock.")
+
+    datos_actuales = hoja.get_all_records()
+    
+    if not datos_actuales:
+        st.warning("⚠️ No hay medicamentos registrados en la base de datos.")
+    else:
+        df_inventario = pd.DataFrame(datos_actuales)
+        
+        # Limpiamos los nombres para asegurar agrupaciones correctas
+        df_inventario['nombre'] = df_inventario['nombre'].astype(str).str.strip()
+        
+        # Filtramos para mostrar solo lo que tiene stock real (>0)
+        df_con_stock = df_inventario[df_inventario['cantidad'] > 0].copy()
+        
+        if df_con_stock.empty:
+            st.warning("⚠️ Todos los medicamentos están en stock 0.")
+        else:
+            tab1, tab2 = st.tabs(["📦 Stock Detallado (Por Lote)", "📊 Stock Agrupado (Total por Medicamento)"])
+
+            with tab1:
+                st.markdown("### Vista Detallada")
+                st.write("Muestra cada ingreso de forma individual. Ideal para auditoría de lotes.")
+                
+                # Ordenamos alfabéticamente por nombre
+                df_detallado = df_con_stock.sort_values(by='nombre')
+                
+                # Seleccionamos las columnas que importan y las renombramos para que se vea lindo
+                df_mostrar_detallado = df_detallado[['nombre', 'lote', 'vencimiento', 'cantidad']]
+                df_mostrar_detallado.columns = ['Medicamento', 'Lote', 'Vencimiento', 'Cantidad Disponible']
+                
+                # Mostramos la tabla interactiva
+                st.dataframe(df_mostrar_detallado, use_container_width=True, hide_index=True)
+
+            with tab2:
+                st.markdown("### Vista Consolidada")
+                st.write("Suma las cantidades de todos los lotes de un mismo medicamento. Ideal para planificar compras.")
+                
+                # MAGIA DE PANDAS: Agrupamos por nombre y sumamos la cantidad
+                df_agrupado = df_con_stock.groupby('nombre')['cantidad'].sum().reset_index()
+                
+                # Ordenamos alfabéticamente por si acaso
+                df_agrupado = df_agrupado.sort_values(by='nombre')
+                df_agrupado.columns = ['Medicamento', 'Stock Total Disponible']
+                
+                st.dataframe(df_agrupado, use_container_width=True, hide_index=True)
